@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>MoveSense</AssemblyName>
+    <ApplicationIcon>../../assets/MoveSense.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup><ProjectReference Include="../MoveSense.Core/MoveSense.Core.csproj" /></ItemGroup>
+  <ItemGroup><Resource Include="../../assets/MoveSense.ico" Link="MoveSense.ico" /></ItemGroup>
+</Project>
