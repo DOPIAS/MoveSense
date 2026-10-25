@@ -1,0 +1,24 @@
+name: Bug report
+description: Report unexpected behavior or a reference detection problem.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: MoveSense version and Windows build
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps and expected behavior
+      description: Use a synthetic example. Do not attach private documents or your history database.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Include the error message. Redact personal paths.
+    validations:
+      required: true
+
