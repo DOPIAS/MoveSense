@@ -1,0 +1,102 @@
+name: Windows
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Publish a preview version (for example 0.2.1); leave empty for checks only'
+        required: false
+        type: string
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - run: dotnet test -c Release --no-build --no-restore --logger trx
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: test-results
+          path: '**/TestResults/*.trx'
+          if-no-files-found: warn
+  package:
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.release_version != '')
+    needs: verify
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      REQUESTED_VERSION: ${{ inputs.release_version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '8.0.x'
+      - name: Select release version
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME.Substring(1) } else { $env:REQUESTED_VERSION }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Use a version such as 0.2.1.' }
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+      - name: Install installer compiler
+        shell: pwsh
+        run: |
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed.' }
+      - name: Build and validate packages
+        shell: pwsh
+        run: ./scripts/build.ps1 -Version $env:RELEASE_VERSION -Installer
+      - name: Verify installation, launch and uninstall
+        shell: pwsh
+        run: |
+          $version = $env:RELEASE_VERSION
+          $target = Join-Path $env:RUNNER_TEMP 'MoveSense install check'
+          $setup = Join-Path $PWD "artifacts/MoveSense-Setup-$version-win-x64.exe"
+          $process = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/DIR="' + $target + '"')) -WindowStyle Hidden -PassThru -Wait
+          if ($process.ExitCode -ne 0) { throw 'Silent installation failed.' }
+          $output = Join-Path $env:RUNNER_TEMP 'MoveSense installed check'
+          $app = Start-Process -FilePath (Join-Path $target 'MoveSense.exe') -ArgumentList @('--smoke-test', ('"' + $output + '"')) -WindowStyle Hidden -PassThru
+          if (!$app.WaitForExit(45000) -or $app.ExitCode -ne 0) { throw 'Installed app launch failed.' }
+          $result = Get-Content -Raw -LiteralPath (Join-Path $output 'result.json') | ConvertFrom-Json
+          if (!$result.success -or $result.undo -ne 'Undone') { throw 'Installed app recovery failed.' }
+          $menu = Start-Process -FilePath (Join-Path $target 'MoveSense.exe') -ArgumentList '--context-menu-status' -WindowStyle Hidden -PassThru -Wait
+          if ($menu.ExitCode -ne 0) { throw 'Installed Explorer menu registration failed.' }
+          $uninstall = Start-Process -FilePath (Join-Path $target 'unins000.exe') -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -WindowStyle Hidden -PassThru -Wait
+          if ($uninstall.ExitCode -ne 0) { throw 'Uninstall failed.' }
+          if (Test-Path -LiteralPath (Join-Path $target 'MoveSense.exe')) { throw 'The app was not removed.' }
+          foreach ($key in @('HKCU:\Software\Classes\*\shell\MoveSense', 'HKCU:\Software\Classes\Directory\shell\MoveSense')) {
+            if (Test-Path -LiteralPath $key) { throw 'Explorer menu entries remain after uninstall.' }
+          }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-release
+          path: |
+            artifacts/MoveSense-Portable-*.zip
+            artifacts/MoveSense-Setup-*.exe
+            artifacts/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Publish preview
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $version = $env:RELEASE_VERSION
+          gh release create "v$version" "artifacts/MoveSense-Portable-$version-win-x64.zip" "artifacts/MoveSense-Setup-$version-win-x64.exe" artifacts/SHA256SUMS.txt --target $env:GITHUB_SHA --prerelease --title "MoveSense v$version" --notes-file CHANGELOG.md
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }
