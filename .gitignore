@@ -1,0 +1,19 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+.local/
+.codex/
+artifacts/
+TestResults/
+*.user
+*.suo
+*.log
+Thumbs.db
+.DS_Store
+NVIDIA Corporation/
+.env
+.env.*
+*.pfx
+*.p12
+*.key
